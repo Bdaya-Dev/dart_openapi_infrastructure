@@ -16,15 +16,6 @@ abstract class HttpResponseBase
 
   HttpRequestBase get originalRequest;
 
-  // const factory HttpResponseBase.memory({
-  //   required HttpRequestBase originalRequest,
-  //   required List<int> bodyBytes,
-  //   required int statusCode,
-  //   required String? reasonPhrase,
-  //   required Map<String, String> headers,
-  //   Map<String, dynamic> context,
-  // }) = MemoryHttpResponse;
-
   const factory HttpResponseBase.stream({
     required HttpRequestBase originalRequest,
     required Stream<List<int>> bodyBytesStream,
