@@ -6,10 +6,10 @@ repository: https://github.com/Bdaya-Dev/dart_openapi_infrastructure
 environment:
   sdk: ^3.4.3
 
-# Add regular dependencies here.
 dependencies:
   http_parser: ^4.1.0
   meta: ^1.15.0
+
 dev_dependencies:
   collection: ^1.19.0
   lints: ^3.0.0
