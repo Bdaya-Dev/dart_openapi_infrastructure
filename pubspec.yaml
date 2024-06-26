@@ -1,6 +1,6 @@
 name: openapi_infrastructure
 description: A shared package for openapi clients to use that provides helpful abstractions.
-version: 1.0.1
+version: 1.0.2
 repository: https://github.com/Bdaya-Dev/dart_openapi_infrastructure
 
 environment:

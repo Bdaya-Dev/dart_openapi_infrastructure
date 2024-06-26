@@ -82,7 +82,7 @@ void main() async {
       'name': 'my name',
     },
     files: [
-      MultiPartFileHttpPacket(
+      MultiPartFormDataFileHttpPacket(
         field: 'files',
         fileName: file.name,
         fileSize: await file.length(),
@@ -93,7 +93,7 @@ void main() async {
   );
   // you can also mutate the formData request
   formData.fields['other-name'] = 'my other name';
-  formData.files.add(MultiPartFileHttpPacket(
+  formData.files.add(MultiPartFormDataFileHttpPacket(
     field: 'files',
     fileName: 'whatever.bin',
     fileSize: 7,

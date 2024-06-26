@@ -4,6 +4,93 @@ mixin MultiPartHttpRequestMixin on HttpRequestMixin {
   List<HttpPacketMixin> get parts;
 }
 
+/// Serializes a multipart request body.
+class MultiPartBodySerializer {
+  MultiPartBodySerializer({
+    String? boundary,
+    List<HttpPacketMixin>? parts,
+    Random? random,
+  })  : parts = parts ?? [],
+        random = random ??= Random(),
+        boundary = boundary ?? getRandomBoundaryString(random);
+
+  final String boundary;
+  final Random random;
+
+  final List<HttpPacketMixin> parts;
+
+  static const int _boundaryLength = 70;
+
+  static List<HttpPacketMixin> getFormDataParts({
+    Map<String, String>? fields,
+    List<MultiPartFormDataFileHttpPacket>? files,
+  }) {
+    return [
+      ...?fields?.entries.map(
+        (e) => MultiPartFormDataFieldHttpPacket(
+            field: e.key, value: e.value, context: {}),
+      ),
+      ...?files,
+    ];
+  }
+
+  Stream<List<int>> get bodyBytesStream async* {
+    const line = [13, 10]; // \r\n
+    final separator = utf8.encode('--$boundary\r\n');
+    final close = utf8.encode('--$boundary--\r\n');
+
+    for (final part in parts) {
+      yield separator;
+      yield utf8.encode(_headerForPart(part));
+      yield* part.bodyBytesStream;
+      yield line;
+    }
+    yield close;
+  }
+
+  int? get contentLength {
+    var length = 0;
+    for (var part in parts) {
+      final partLen = part.contentLength;
+      if (partLen == null) {
+        return null;
+      }
+      length += '--'.length +
+          boundary.length +
+          '\r\n'.length +
+          utf8.encode(_headerForPart(part)).length +
+          partLen +
+          '\r\n'.length;
+    }
+
+    return length + '--'.length + _boundaryLength + '--\r\n'.length;
+  }
+
+  /// Returns the header string for a part.
+  ///
+  /// The return value is guaranteed to contain only ASCII characters.
+  String _headerForPart(HttpPacketMixin part) {
+    var header =
+        part.headers.entries.map((e) => '${e.key}: ${e.value}').join('\r\n');
+    return '$header\r\n\r\n';
+  }
+
+  /// The total length of the multipart boundaries used when building the
+  /// request body.
+  ///
+  /// According to http://tools.ietf.org/html/rfc1341.html, this can't be longer
+  /// than 70.
+  static String getRandomBoundaryString(Random random) {
+    var prefix = 'dart-http-boundary-';
+    var list = List<int>.generate(
+        _boundaryLength - prefix.length,
+        (index) =>
+            _boundaryCharacters[random.nextInt(_boundaryCharacters.length)],
+        growable: false);
+    return '$prefix${String.fromCharCodes(list)}';
+  }
+}
+
 // Mostly taken from https://github.com/dart-lang/http/blob/8c325b9ca33d878a86d69c5048a8e6e18379663c/pkgs/http/lib/src/multipart_request.dart
 base class MultiPartHttpRequest extends HttpRequestBase
     with MultiPartHttpRequestMixin {
@@ -24,7 +111,7 @@ base class MultiPartHttpRequest extends HttpRequestBase
     required Uri url,
     Map<String, String>? headers,
     Map<String, String>? fields,
-    List<MultiPartFileHttpPacket>? files,
+    List<MultiPartFormDataFileHttpPacket>? files,
     Map<String, dynamic>? context,
     Random? random,
   }) =>
@@ -52,6 +139,9 @@ base class MultiPartHttpRequest extends HttpRequestBase
   final Map<String, String> _originalHeaders;
   CaseInsensitiveMap<String>? _processedHeaders;
   late MediaType _contentType;
+
+  MultiPartBodySerializer? serializer;
+
   CaseInsensitiveMap<String> _processHeaders() {
     final res = CaseInsensitiveMap.from(_originalHeaders);
     final originalContentType = res[_kContentType] ?? 'multipart/mixed';
@@ -60,10 +150,15 @@ base class MultiPartHttpRequest extends HttpRequestBase
       //if no boundary is provided, use it.
       contentTypeParsed = contentTypeParsed.change(parameters: {
         ...contentTypeParsed.parameters,
-        _kBoundary: _boundaryString(),
+        _kBoundary: MultiPartBodySerializer.getRandomBoundaryString(random),
       });
     }
     _contentType = contentTypeParsed;
+    serializer = MultiPartBodySerializer(
+      parts: parts,
+      random: random,
+      boundary: contentTypeParsed.parameters[_kBoundary],
+    );
 
     res[_kContentType] = _contentType.toString();
 
@@ -79,16 +174,16 @@ base class MultiPartHttpRequest extends HttpRequestBase
   final List<HttpPacketMixin> parts;
 
   @override
+  @nonVirtual
   Stream<List<int>> get bodyBytesStream {
     //process headers
     final _ = headers;
     //get result content type.
-
-    final boundary = _contentType.parameters[_kBoundary]!;
-    return _finalize(boundary);
+    return serializer?.bodyBytesStream ?? Stream.empty();
   }
 
   @override
+  @nonVirtual
   int? get contentLength {
     //super.contentLength will also call _processHeaders
     final superContentLength = super.contentLength;
@@ -96,76 +191,20 @@ base class MultiPartHttpRequest extends HttpRequestBase
       //user wants to override content length via headers.
       return superContentLength;
     }
-    final boundary = _contentType.parameters[_kBoundary]!;
-
-    var length = 0;
-    for (var part in parts) {
-      final partLen = part.contentLength;
-      if (partLen == null) {
-        return null;
-      }
-      length += '--'.length +
-          boundary.length +
-          '\r\n'.length +
-          utf8.encode(_headerForPart(part)).length +
-          partLen +
-          '\r\n'.length;
-    }
-
-    return length + '--'.length + _boundaryLength + '--\r\n'.length;
+    return serializer?.contentLength;
   }
 
-  /// The total length of the multipart boundaries used when building the
-  /// request body.
-  ///
-  /// According to http://tools.ietf.org/html/rfc1341.html, this can't be longer
-  /// than 70.
-  static const int _boundaryLength = 70;
   static const _kBoundary = 'boundary';
   static const _kContentType = 'content-type';
-
-  Stream<List<int>> _finalize(String boundary) async* {
-    const line = [13, 10]; // \r\n
-    final separator = utf8.encode('--$boundary\r\n');
-    final close = utf8.encode('--$boundary--\r\n');
-
-    for (final part in parts) {
-      yield separator;
-      yield utf8.encode(_headerForPart(part));
-      yield* part.bodyBytesStream;
-      yield line;
-    }
-    yield close;
-  }
-
-  /// Returns the header string for a part.
-  ///
-  /// The return value is guaranteed to contain only ASCII characters.
-  String _headerForPart(HttpPacketMixin part) {
-    var header =
-        part.headers.entries.map((e) => '${e.key}: ${e.value}').join('\r\n');
-    return '$header\r\n\r\n';
-  }
-
-  /// Returns a randomly-generated multipart boundary string
-  String _boundaryString() {
-    var prefix = 'dart-http-boundary-';
-    var list = List<int>.generate(
-        _boundaryLength - prefix.length,
-        (index) =>
-            _boundaryCharacters[random.nextInt(_boundaryCharacters.length)],
-        growable: false);
-    return '$prefix${String.fromCharCodes(list)}';
-  }
 }
 
 mixin _MultiPartFieldMixin {
   String get field;
 }
 
-class _FieldHttpPacket
+class MultiPartFormDataFieldHttpPacket
     with HttpMetaPacketMixin, HttpPacketMixin, _MultiPartFieldMixin {
-  const _FieldHttpPacket({
+  const MultiPartFormDataFieldHttpPacket({
     required this.context,
     required this.field,
     required this.value,
@@ -191,9 +230,9 @@ class _FieldHttpPacket
       };
 }
 
-base class MultiPartFileHttpPacket extends StreamHttpPacket
+base class MultiPartFormDataFileHttpPacket extends StreamHttpPacket
     with HttpPacketMixin, _MultiPartFieldMixin {
-  MultiPartFileHttpPacket({
+  MultiPartFormDataFileHttpPacket({
     required this.field,
     required super.bodyBytesStream,
     super.context,
@@ -229,7 +268,7 @@ base class MultiPartFormDataHttpRequest extends MultiPartHttpRequest {
     required super.method,
     required super.url,
     Map<String, String>? fields,
-    List<MultiPartFileHttpPacket>? files,
+    List<MultiPartFormDataFileHttpPacket>? files,
     super.headers,
     super.context,
     super.random,
@@ -237,19 +276,13 @@ base class MultiPartFormDataHttpRequest extends MultiPartHttpRequest {
         fields = fields ?? {};
 
   final Map<String, String> fields;
-  final List<MultiPartFileHttpPacket> files;
+  final List<MultiPartFormDataFileHttpPacket> files;
 
   @override
-  List<HttpPacketMixin> get parts => [
-        ...files,
-        ...fields.entries.map(
-          (e) => _FieldHttpPacket(
-            context: const {},
-            field: e.key,
-            value: e.value,
-          ),
-        )
-      ];
+  List<HttpPacketMixin> get parts => MultiPartBodySerializer.getFormDataParts(
+        fields: fields,
+        files: files,
+      );
 }
 
 /// A regular expression that matches strings that are composed entirely of

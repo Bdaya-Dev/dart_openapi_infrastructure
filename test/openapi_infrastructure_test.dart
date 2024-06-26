@@ -84,11 +84,11 @@ void main() {
   });
 }
 
-Future<MultiPartFileHttpPacket> createPartFromXFile(
+Future<MultiPartFormDataFileHttpPacket> createPartFromXFile(
   String field,
   XFile file,
 ) async {
-  return MultiPartFileHttpPacket(
+  return MultiPartFormDataFileHttpPacket(
     bodyBytesStream: file.openRead(),
     field: field,
     fileName: file.name,

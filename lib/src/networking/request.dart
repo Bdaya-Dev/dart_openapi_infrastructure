@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:http_parser/http_parser.dart';
+import 'package:meta/meta.dart';
 import 'http_packets.dart';
 
 part 'request.multi_part.dart';
@@ -65,7 +66,7 @@ abstract class HttpRequestBase
     required Uri url,
     required String method,
     Map<String, String>? fields,
-    List<MultiPartFileHttpPacket>? files,
+    List<MultiPartFormDataFileHttpPacket>? files,
     Map<String, String>? headers,
     Map<String, dynamic>? context,
     Random? random,
