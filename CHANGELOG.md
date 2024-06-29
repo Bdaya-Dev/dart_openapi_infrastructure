@@ -1,3 +1,7 @@
+## 2.0.0
+
+- feat!: Introduce `SyncMultiPartBodySerializer` and change `MultiPartBodySerializer` to accept a stream of parts.
+
 ## 1.1.2
 
 - Improved multi part form field request handling

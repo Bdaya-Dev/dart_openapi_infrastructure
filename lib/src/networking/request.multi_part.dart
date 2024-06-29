@@ -4,42 +4,71 @@ mixin MultiPartHttpRequestMixin on HttpRequestMixin {
   List<HttpPacketMixin> get parts;
 }
 
-/// Serializes a multipart request body.
-class MultiPartBodySerializer {
-  MultiPartBodySerializer({
-    String? boundary,
-    List<HttpPacketMixin>? parts,
-    Random? random,
-  })  : parts = parts ?? [],
-        random = random ??= Random(),
-        boundary = boundary ?? getRandomBoundaryString(random);
-
+class MultiPartBodySerializationResult {
+  final int? contentLength;
+  final Stream<List<int>> bodyBytesStream;
   final String boundary;
-  final Random random;
 
-  final List<HttpPacketMixin> parts;
+  const MultiPartBodySerializationResult({
+    required this.contentLength,
+    required this.bodyBytesStream,
+    required this.boundary,
+  });
+}
+
+/// Serializes a multipart request body.
+/// If your have your parts in an [Iterable], you can use [SyncMultiPartBodySerializer].
+class MultiPartBodySerializer {
+  const MultiPartBodySerializer({
+    this.boundary,
+    this.parts = const Stream.empty(),
+    this.random,
+  });
+
+  final String? boundary;
+  final Random? random;
+  final Stream<HttpPacketMixin> parts;
 
   static const int _boundaryLength = 70;
 
-  static List<HttpPacketMixin> getFormDataParts({
+  static Iterable<HttpPacketMixin> getFormDataParts({
     Map<String, String>? fields,
     List<MultiPartFormDataFileHttpPacket>? files,
-  }) {
-    return [
-      ...?fields?.entries.map(
+  }) sync* {
+    if (fields != null) {
+      yield* fields.entries.map(
         (e) => MultiPartFormDataFieldHttpPacket(
-            field: e.key, value: e.value, context: {}),
-      ),
-      ...?files,
-    ];
+          field: e.key,
+          value: e.value,
+          context: {},
+        ),
+      );
+    }
+    if (files != null) {
+      yield* files;
+    }
   }
 
-  Stream<List<int>> get bodyBytesStream async* {
+  Future<MultiPartBodySerializationResult> serialize() async {
+    final boundary =
+        this.boundary ?? getRandomBoundaryString(random ?? Random());
+    final partsList = await parts.toList();
+    return MultiPartBodySerializationResult(
+      contentLength: contentLength(partsList, boundary),
+      bodyBytesStream: bodyBytesStream(partsList, boundary),
+      boundary: boundary,
+    );
+  }
+
+  static Stream<List<int>> bodyBytesStream(
+    Iterable<HttpPacketMixin> partsList,
+    String boundary,
+  ) async* {
     const line = [13, 10]; // \r\n
     final separator = utf8.encode('--$boundary\r\n');
     final close = utf8.encode('--$boundary--\r\n');
 
-    for (final part in parts) {
+    for (final part in partsList) {
       yield separator;
       yield utf8.encode(_headerForPart(part));
       yield* part.bodyBytesStream;
@@ -48,9 +77,12 @@ class MultiPartBodySerializer {
     yield close;
   }
 
-  int? get contentLength {
+  static int? contentLength(
+    Iterable<HttpPacketMixin> partsList,
+    String boundary,
+  ) {
     var length = 0;
-    for (var part in parts) {
+    for (var part in partsList) {
       final partLen = part.contentLength;
       if (partLen == null) {
         return null;
@@ -69,7 +101,7 @@ class MultiPartBodySerializer {
   /// Returns the header string for a part.
   ///
   /// The return value is guaranteed to contain only ASCII characters.
-  String _headerForPart(HttpPacketMixin part) {
+  static String _headerForPart(HttpPacketMixin part) {
     var header =
         part.headers.entries.map((e) => '${e.key}: ${e.value}').join('\r\n');
     return '$header\r\n\r\n';
@@ -88,6 +120,31 @@ class MultiPartBodySerializer {
             _boundaryCharacters[random.nextInt(_boundaryCharacters.length)],
         growable: false);
     return '$prefix${String.fromCharCodes(list)}';
+  }
+}
+
+/// Serializes a multipart request body.
+class SyncMultiPartBodySerializer {
+  final String? boundary;
+  final Random? random;
+  final Iterable<HttpPacketMixin> parts;
+
+  const SyncMultiPartBodySerializer({
+    this.boundary,
+    this.parts = const [],
+    this.random,
+  });
+
+  MultiPartBodySerializationResult serialize() {
+    final boundary = this.boundary ??
+        MultiPartBodySerializer.getRandomBoundaryString(random ?? Random());
+    final partsList = parts.toList();
+    return MultiPartBodySerializationResult(
+      boundary: boundary,
+      contentLength: MultiPartBodySerializer.contentLength(partsList, boundary),
+      bodyBytesStream:
+          MultiPartBodySerializer.bodyBytesStream(partsList, boundary),
+    );
   }
 }
 
@@ -139,8 +196,7 @@ base class MultiPartHttpRequest extends HttpRequestBase
   final Map<String, String> _originalHeaders;
   CaseInsensitiveMap<String>? _processedHeaders;
   late MediaType _contentType;
-
-  MultiPartBodySerializer? serializer;
+  String get boundary => _contentType.parameters[_kBoundary]!;
 
   CaseInsensitiveMap<String> _processHeaders() {
     final res = CaseInsensitiveMap.from(_originalHeaders);
@@ -154,11 +210,6 @@ base class MultiPartHttpRequest extends HttpRequestBase
       });
     }
     _contentType = contentTypeParsed;
-    serializer = MultiPartBodySerializer(
-      parts: parts,
-      random: random,
-      boundary: contentTypeParsed.parameters[_kBoundary],
-    );
 
     res[_kContentType] = _contentType.toString();
 
@@ -179,7 +230,7 @@ base class MultiPartHttpRequest extends HttpRequestBase
     //process headers
     final _ = headers;
     //get result content type.
-    return serializer?.bodyBytesStream ?? Stream.empty();
+    return MultiPartBodySerializer.bodyBytesStream(parts, boundary);
   }
 
   @override
@@ -191,7 +242,7 @@ base class MultiPartHttpRequest extends HttpRequestBase
       //user wants to override content length via headers.
       return superContentLength;
     }
-    return serializer?.contentLength;
+    return MultiPartBodySerializer.contentLength(parts, boundary);
   }
 
   static const _kBoundary = 'boundary';
@@ -306,7 +357,7 @@ base class MultiPartFormDataHttpRequest extends MultiPartHttpRequest {
   List<HttpPacketMixin> get parts => MultiPartBodySerializer.getFormDataParts(
         fields: fields,
         files: files,
-      );
+      ).toList();
 }
 
 /// A regular expression that matches strings that are composed entirely of
