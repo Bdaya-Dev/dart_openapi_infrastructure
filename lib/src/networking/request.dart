@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:http_parser/http_parser.dart';
 import 'package:meta/meta.dart';
 import 'http_packets.dart';

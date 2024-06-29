@@ -1,3 +1,7 @@
+## 1.1.2
+
+- Improved multi part form field request handling
+
 ## 1.0.2
 
 - Added `MultiPartBodySerializer`.

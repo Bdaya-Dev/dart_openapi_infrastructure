@@ -204,14 +204,17 @@ mixin _MultiPartFieldMixin {
 
 class MultiPartFormDataFieldHttpPacket
     with HttpMetaPacketMixin, HttpPacketMixin, _MultiPartFieldMixin {
-  const MultiPartFormDataFieldHttpPacket({
-    required this.context,
+  MultiPartFormDataFieldHttpPacket({
     required this.field,
     required this.value,
-  });
+    Map<String, dynamic>? context,
+    Map<String, String>? extraHeaders,
+  })  : extraHeaders = extraHeaders ?? {},
+        context = context ?? {},
+        encodedValue = utf8.encode(value);
 
   @override
-  Stream<List<int>> get bodyBytesStream => Stream.value(utf8.encode(value));
+  Stream<List<int>> get bodyBytesStream => Stream.value(encodedValue);
 
   @override
   final Map<String, dynamic> context;
@@ -219,6 +222,8 @@ class MultiPartFormDataFieldHttpPacket
   @override
   final String field;
   final String value;
+  final Uint8List encodedValue;
+  final Map<String, String> extraHeaders;
 
   @override
   Map<String, String> get headers => {
@@ -227,26 +232,27 @@ class MultiPartFormDataFieldHttpPacket
           'Content-Type': 'text/plain; charset=utf-8',
           'content-transfer-encoding': 'binary'
         },
+        'content-length': encodedValue.lengthInBytes.toString(),
+        ...extraHeaders,
       };
 }
 
-base class MultiPartFormDataFileHttpPacket extends StreamHttpPacket
-    with HttpPacketMixin, _MultiPartFieldMixin {
+base class MultiPartFormDataFileHttpPacket
+    with HttpMetaPacketMixin, HttpPacketMixin, _MultiPartFieldMixin {
   MultiPartFormDataFileHttpPacket({
     required this.field,
-    required super.bodyBytesStream,
-    super.context,
-    String? mimeType,
-    int? fileSize,
-    String? fileName,
-  }) : super(
-          headers: {
-            'Content-Type': mimeType ?? 'application/octet-stream',
-            'content-disposition':
-                _generateContentDisposition(field: field, fileName: fileName),
-          },
-          contentLength: fileSize,
-        );
+    required this.bodyBytesStream,
+    this.mimeType,
+    this.fileName,
+    this.fileSize,
+    Map<String, dynamic>? context,
+    Map<String, String>? extraHeaders,
+  })  : context = context ?? {},
+        extraHeaders = extraHeaders ?? {};
+
+  int? fileSize;
+  @override
+  int? get contentLength => fileSize;
 
   static String _generateContentDisposition({
     required String field,
@@ -261,6 +267,24 @@ base class MultiPartFormDataFileHttpPacket extends StreamHttpPacket
 
   @override
   final String field;
+  String? fileName;
+  String? mimeType;
+  final Map<String, String> extraHeaders;
+
+  @override
+  final Stream<List<int>> bodyBytesStream;
+
+  @override
+  final Map<String, dynamic> context;
+
+  @override
+  Map<String, String> get headers => {
+        'Content-Type': mimeType ?? 'application/octet-stream',
+        if (fileSize case int fileSize) 'Content-Length': fileSize.toString(),
+        'content-disposition':
+            _generateContentDisposition(field: field, fileName: fileName),
+        ...extraHeaders,
+      };
 }
 
 base class MultiPartFormDataHttpRequest extends MultiPartHttpRequest {
