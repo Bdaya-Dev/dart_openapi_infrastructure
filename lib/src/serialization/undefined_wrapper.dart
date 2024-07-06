@@ -2,8 +2,9 @@
 ///
 /// Note that the type itself can be nullable, which is irrelevant.
 ///
-/// An undefined value means the value was not present in the source
-/// when deserializing the class.
+/// An undefined value semantically means that the key was not present in
+/// the source Map when deserializing the class, but it can be used in other
+/// contexts as well.
 ///
 /// usage:
 /// ```dart
@@ -11,13 +12,13 @@
 /// final y = UndefinedWrapper<int>.undefined();
 /// ```
 extension type const UndefinedWrapper<T>._(Object? source) {
-  static const $undefinedToken = Object();
+  static const $undefinedToken = _UndefinedClass();
 
   const UndefinedWrapper.undefined() : this._($undefinedToken);
   const UndefinedWrapper(T source) : this._(source);
 
-  bool get isUndefined => source == $undefinedToken;
-  bool get isDefined => source is T;
+  bool get isUndefined => source == $undefinedToken || source is! T;
+  bool get isDefined => source != $undefinedToken && source is T;
 
   /// This returns the source value, or null if it's undefined.
   T? get valueOrNull => isUndefined ? null : source as T;
@@ -28,10 +29,6 @@ extension type const UndefinedWrapper<T>._(Object? source) {
       : source as T;
 
   bool equals(UndefinedWrapper<T> other) {
-    if (other.isUndefined && isUndefined) {
-      return true;
-    }
-
     return other.source == source;
   }
 
@@ -47,10 +44,19 @@ extension type const UndefinedWrapper<T>._(Object? source) {
     required TOther Function(T src) defined,
     required TOther Function() unDefined,
   }) {
-    if (source is T) {
+    if (isDefined) {
       return defined(source as T);
     } else {
       return unDefined();
     }
+  }
+}
+
+class _UndefinedClass {
+  const _UndefinedClass();
+
+  @override
+  String toString() {
+    return "Undefined.";
   }
 }

@@ -1,3 +1,7 @@
+## 2.0.1
+
+- fix: `UndefinedWrapper` type checking.
+
 ## 2.0.0
 
 - feat!: Introduce `SyncMultiPartBodySerializer` and change `MultiPartBodySerializer` to accept a stream of parts.
